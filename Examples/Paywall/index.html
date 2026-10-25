@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Premium</title>
+  <style>
+    :root { color-scheme: light dark; font: 17px system-ui; }
+    body { max-width: 34rem; margin: auto; padding: 24px; }
+    h1 { font-size: 2rem; }
+    label { display: block; padding: 18px; border: 1px solid #888; border-radius: 12px; margin: 12px 0; }
+    button { font: inherit; padding: 14px; margin: 8px 0; min-height: 48px; }
+    #buy { width: 100%; background: #2157d5; color: white; border: 0; border-radius: 12px; }
+    #status { min-height: 3em; }
+    footer { display: flex; flex-wrap: wrap; gap: 12px; }
+  </style>
+</head>
+<body>
+  <button id="close" aria-label="Close paywall">Close</button>
+  <h1>Choose Premium</h1>
+  <p>Select the subscription that works for you.</p>
+  <form id="options" aria-label="Subscription options"></form>
+  <p id="disclosure"></p>
+  <button id="buy" disabled>Loading products…</button>
+  <p id="status" role="status" aria-live="polite"></p>
+  <footer>
+    <button id="restore">Restore purchases</button>
+    <button id="privacy">Privacy</button>
+    <button id="terms">Terms</button>
+  </footer>
+<script>
+  // Publish this placement with pro.weekly and pro.weekly.payg from the local fixture,
+  // or replace those IDs in the manifest with your approved App Store product IDs.
+  // No prices, periods, or intro eligibility are inferred by this HTML.
+  const options = document.querySelector('#options');
+  const buy = document.querySelector('#buy');
+  const status = document.querySelector('#status');
+  let selected;
+  let busy = false;
+  const period = p => `${p.value} ${p.unit}${p.value === 1 ? '' : 's'}`;
+  const totalIntroPeriod = offer => period({value: offer.period.value * offer.periodCount, unit: offer.period.unit});
+  function description(product) {
+    const renewal = product.subscriptionPeriod ? `${product.displayPrice} every ${period(product.subscriptionPeriod)}` : product.displayPrice;
+    const intro = product.isEligibleForIntroOffer && product.introductoryOffer;
+    if (!intro) return renewal;
+    if (intro.paymentMode === 'freeTrial') return `${totalIntroPeriod(intro)} free, then ${renewal}`;
+    if (intro.paymentMode === 'payAsYouGo') return `${intro.displayPrice} every ${period(intro.period)} for ${totalIntroPeriod(intro)}, then ${renewal}`;
+    return `${intro.displayPrice} for ${totalIntroPeriod(intro)}, then ${renewal}`;
+  }
+  function choose(product) {
+    selected = product;
+    const trial = product.isEligibleForIntroOffer && product.introductoryOffer?.paymentMode === 'freeTrial';
+    buy.textContent = trial ? 'Start free trial' : 'Subscribe';
+    document.querySelector('#disclosure').textContent = `${description(product)}. Automatically renews until cancelled. Manage or cancel in App Store subscription settings.`;
+    window.flowdeck.event('product_selected', { productId: product.id, trialEligible: !!trial }).catch(showError);
+    // The host can use this event to update its trial reminder UI, only for an eligible trial.
+  }
+  function setBusy(value) {
+    busy = value;
+    document.querySelectorAll('button, input').forEach(element => element.disabled = value);
+    buy.disabled = value || !selected;
+  }
+  function showError(error) { status.textContent = error.message || String(error); }
+  async function load() {
+    if (!window.flowdeck) { buy.textContent = 'Open in the app'; return; }
+    try {
+      const products = await window.flowdeck.getProducts();
+      options.replaceChildren();
+      products.forEach((product, index) => {
+        const label = document.createElement('label');
+        const radio = document.createElement('input');
+        radio.type = 'radio'; radio.name = 'product'; radio.value = product.id; radio.checked = index === 0;
+        radio.addEventListener('change', () => choose(product));
+        label.append(radio, document.createTextNode(` ${product.displayName}: ${description(product)}`));
+        options.append(label);
+      });
+      if (products.length) { choose(products[0]); buy.disabled = false; }
+      else { buy.textContent = 'Products unavailable'; status.textContent = 'Please try again later, or restore your existing purchase.'; }
+    } catch (error) { buy.textContent = 'Products unavailable'; showError(error); }
+  }
+  buy.onclick = async () => {
+    if (busy || !selected) return;
+    setBusy(true);
+    try {
+      const result = await window.flowdeck.purchase(selected.id);
+      status.textContent = { purchased: 'Purchase complete.', cancelled: 'Purchase cancelled.', pending: 'Awaiting approval. Access will update after approval.' }[result.status];
+      if (result.status === 'purchased') await window.flowdeck.close();
+    } catch (error) { showError(error); }
+    finally { setBusy(false); }
+  };
+  document.querySelector('#restore').onclick = async () => {
+    setBusy(true);
+    try {
+      const entitlements = await window.flowdeck.restore();
+      status.textContent = entitlements.length ? 'Purchases restored.' : 'No active purchases to restore.';
+    } catch (error) { showError(error); }
+    finally { setBusy(false); }
+  };
+  document.querySelector('#close').onclick = () => window.flowdeck.close().catch(showError);
+  document.querySelector('#privacy').onclick = () => window.flowdeck.openURL('https://example.com/privacy').catch(showError);
+  document.querySelector('#terms').onclick = () => window.flowdeck.openURL('https://example.com/terms').catch(showError);
+  window.addEventListener('flowdeck:entitlements', event => {
+    if (event.detail.length) status.textContent = 'Your purchase is active.';
+  });
+  load();
+</script>
+</body>
+</html>

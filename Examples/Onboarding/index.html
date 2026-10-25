@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Welcome</title>
+<style>body{font:18px system-ui;max-width:32rem;margin:auto;padding:24px}button{font:inherit;padding:16px;margin:12px 0}#status{min-height:3em}</style>
+<h1>Welcome</h1>
+<p>Your onboarding content goes here.</p>
+<button id="review">Rate the app</button>
+<button id="complete">Finish setup</button>
+<p id="status" role="status"></p>
+<script>
+  const status = document.querySelector('#status');
+  document.querySelector('#review').onclick = async () => {
+    try { await window.flowdeck.requestReview(); }
+    catch (error) { status.textContent = error.message; }
+  };
+  document.querySelector('#complete').onclick = async event => {
+    event.target.disabled = true;
+    try {
+      await window.flowdeck.completeOnboarding(); // Only this explicit action signals completion.
+      await window.flowdeck.close();
+    } catch (error) { status.textContent = error.message; event.target.disabled = false; }
+  };
+</script>
+</html>

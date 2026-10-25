@@ -1,0 +1,51 @@
+name: FlowdeckHarness
+options:
+  deploymentTarget:
+    iOS: "16.0"
+packages:
+  Flowdeck:
+    path: ${FLOWDECK_REPO}
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGNING_ALLOWED: NO
+    GENERATE_INFOPLIST_FILE: YES
+    TARGETED_DEVICE_FAMILY: "1,2"
+targets:
+  FlowdeckHost:
+    type: application
+    platform: iOS
+    sources:
+      - ${FLOWDECK_REPO}/Tests/iOSHost/Host.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.flowdeck.local-test-host
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+  FlowdeckHarnessTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ${FLOWDECK_REPO}/Tests/FlowdeckTests
+        excludes: [Fixtures]
+      - path: ${FLOWDECK_REPO}/Tests/FlowdeckTests/Fixtures
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - target: FlowdeckHost
+      - package: Flowdeck
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.flowdeck.local-tests
+schemes:
+  FlowdeckHarness:
+    build:
+      targets:
+        FlowdeckHost: all
+        FlowdeckHarnessTests: [test]
+    run:
+      storeKitConfiguration: ${FLOWDECK_REPO}/Tests/FlowdeckTests/Fixtures/Products.storekit
+    test:
+      gatherCoverageData: false
+      targets:
+        - FlowdeckHarnessTests

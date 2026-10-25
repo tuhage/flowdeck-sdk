@@ -1,0 +1,192 @@
+{
+  "identifier": "C5A57F04-2FAA-4CC2-881A-000000000207",
+  "nonRenewingSubscriptions": [],
+  "products": [],
+  "settings": {
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_storefront": "USA",
+    "_storeKitErrors": []
+  },
+  "subscriptionGroups": [
+    {
+      "id": "flowdeck-premium",
+      "name": "Premium",
+      "localizations": [
+        {
+          "description": "Premium",
+          "displayName": "Premium",
+          "locale": "en_US"
+        }
+      ],
+      "subscriptions": [
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "6.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "100",
+          "introductoryOffer": {
+            "internalID": "200",
+            "displayPrice": "0.00",
+            "numberOfPeriods": 1,
+            "paymentMode": "free",
+            "subscriptionPeriod": "P3D"
+          },
+          "localizations": [
+            {
+              "locale": "en_US",
+              "displayName": "pro.weekly",
+              "description": "Flowdeck local test subscription"
+            }
+          ],
+          "productID": "pro.weekly",
+          "recurringSubscriptionPeriod": "P1W",
+          "referenceName": "pro.weekly",
+          "subscriptionGroupID": "flowdeck-premium",
+          "type": "RecurringSubscription"
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "9.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "101",
+          "introductoryOffer": {
+            "internalID": "201",
+            "displayPrice": "0.99",
+            "numberOfPeriods": 1,
+            "paymentMode": "payAsYouGo",
+            "subscriptionPeriod": "P1W"
+          },
+          "localizations": [
+            {
+              "locale": "en_US",
+              "displayName": "pro.weekly.payg",
+              "description": "Flowdeck local test subscription"
+            }
+          ],
+          "productID": "pro.weekly.payg",
+          "recurringSubscriptionPeriod": "P1W",
+          "referenceName": "pro.weekly.payg",
+          "subscriptionGroupID": "flowdeck-premium",
+          "type": "RecurringSubscription"
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "9.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "102",
+          "introductoryOffer": {
+            "internalID": "202",
+            "displayPrice": "0.00",
+            "numberOfPeriods": 1,
+            "paymentMode": "free",
+            "subscriptionPeriod": "P3D"
+          },
+          "localizations": [
+            {
+              "locale": "en_US",
+              "displayName": "pro.monthly",
+              "description": "Flowdeck local test subscription"
+            }
+          ],
+          "productID": "pro.monthly",
+          "recurringSubscriptionPeriod": "P1M",
+          "referenceName": "pro.monthly",
+          "subscriptionGroupID": "flowdeck-premium",
+          "type": "RecurringSubscription"
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "14.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "103",
+          "introductoryOffer": {
+            "internalID": "203",
+            "displayPrice": "3.99",
+            "numberOfPeriods": 1,
+            "paymentMode": "payAsYouGo",
+            "subscriptionPeriod": "P1M"
+          },
+          "localizations": [
+            {
+              "locale": "en_US",
+              "displayName": "pro.monthly.payg",
+              "description": "Flowdeck local test subscription"
+            }
+          ],
+          "productID": "pro.monthly.payg",
+          "recurringSubscriptionPeriod": "P1M",
+          "referenceName": "pro.monthly.payg",
+          "subscriptionGroupID": "flowdeck-premium",
+          "type": "RecurringSubscription"
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "39.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "104",
+          "introductoryOffer": {
+            "internalID": "204",
+            "displayPrice": "0.00",
+            "numberOfPeriods": 1,
+            "paymentMode": "free",
+            "subscriptionPeriod": "P3D"
+          },
+          "localizations": [
+            {
+              "locale": "en_US",
+              "displayName": "pro.yearly",
+              "description": "Flowdeck local test subscription"
+            }
+          ],
+          "productID": "pro.yearly",
+          "recurringSubscriptionPeriod": "P1Y",
+          "referenceName": "pro.yearly",
+          "subscriptionGroupID": "flowdeck-premium",
+          "type": "RecurringSubscription"
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "49.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "105",
+          "introductoryOffer": {
+            "internalID": "205",
+            "displayPrice": "29.99",
+            "numberOfPeriods": 1,
+            "paymentMode": "payAsYouGo",
+            "subscriptionPeriod": "P1Y"
+          },
+          "localizations": [
+            {
+              "locale": "en_US",
+              "displayName": "pro.yearly.payg",
+              "description": "Flowdeck local test subscription"
+            }
+          ],
+          "productID": "pro.yearly.payg",
+          "recurringSubscriptionPeriod": "P1Y",
+          "referenceName": "pro.yearly.payg",
+          "subscriptionGroupID": "flowdeck-premium",
+          "type": "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version": {
+    "major": 3,
+    "minor": 0
+  }
+}
