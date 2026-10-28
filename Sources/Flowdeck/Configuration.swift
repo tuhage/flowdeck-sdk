@@ -4,16 +4,19 @@ public struct FlowdeckConfiguration: Sendable {
     public let apiKey: String
     /// API origin, e.g. https://flowdeck.example.com (no /v1 suffix).
     public let baseURL: URL
+    /// Optional request handlers, scoped to this SDK's session. The default uses ordinary HTTPS.
+    public let protocolClasses: [URLProtocol.Type]
     public let fallbackPackages: [FlowdeckFallbackPackage]
     public let cacheDirectory: URL
     /// Optional attribution identity, for example AppMetricKit.appAccountToken.
     public let appAccountToken: UUID?
 
-    public init(apiKey: String, baseURL: URL,
+    public init(apiKey: String, baseURL: URL, protocolClasses: [URLProtocol.Type] = [],
                 fallbackPackages: [FlowdeckFallbackPackage] = [],
                 cacheDirectory: URL? = nil, appAccountToken: UUID? = nil) {
         self.apiKey = apiKey
         self.baseURL = baseURL
+        self.protocolClasses = protocolClasses
         self.fallbackPackages = fallbackPackages
         self.cacheDirectory = cacheDirectory ?? FileManager.default.urls(
             for: .cachesDirectory, in: .userDomainMask

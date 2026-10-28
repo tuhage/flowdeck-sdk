@@ -20,8 +20,11 @@ private final class NoRedirects: NSObject, URLSessionTaskDelegate, Sendable {
 }
 struct URLSessionTransport: HTTPTransport {
     private let session: URLSession
-    init() {
+    init(protocolClasses: [URLProtocol.Type] = []) {
         let configuration = URLSessionConfiguration.ephemeral
+        if !protocolClasses.isEmpty {
+            configuration.protocolClasses = protocolClasses + (configuration.protocolClasses ?? [])
+        }
         configuration.urlCache = nil
         configuration.timeoutIntervalForRequest = 20
         configuration.timeoutIntervalForResource = 40
@@ -50,10 +53,10 @@ actor ContentRepository {
     let cache: PackageCache
     private var refreshTask: Task<Manifest, Error>?
 
-    init(configuration: FlowdeckConfiguration, transport: any HTTPTransport = URLSessionTransport()) throws {
+    init(configuration: FlowdeckConfiguration, transport: (any HTTPTransport)? = nil) throws {
         try configuration.validate()
         self.configuration = configuration
-        self.transport = transport
+        self.transport = transport ?? URLSessionTransport(protocolClasses: configuration.protocolClasses)
         let namespace = PackageCache.hash(Data((configuration.baseURL.absoluteString + "\n" + configuration.apiKey).utf8))
         cache = PackageCache(root: configuration.cacheDirectory.appendingPathComponent(namespace))
     }
