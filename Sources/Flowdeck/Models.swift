@@ -36,10 +36,38 @@ public struct Placement: Codable, Sendable, Equatable {
     public let url: String
     public let productIDs: [String]
     public let publishedAt: String
+    public let parameters: PlacementParameters
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, version, hash, size, url
+        case id, kind, version, hash, size, url, parameters
         case productIDs = "product_ids", publishedAt = "published_at"
+    }
+
+    init(id: String, kind: Kind, version: Int, hash: String, size: Int, url: String,
+         productIDs: [String], publishedAt: String, parameters: PlacementParameters = .init()) {
+        self.id = id
+        self.kind = kind
+        self.version = version
+        self.hash = hash
+        self.size = size
+        self.url = url
+        self.productIDs = productIDs
+        self.publishedAt = publishedAt
+        self.parameters = parameters
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: try container.decode(String.self, forKey: .id),
+                  kind: try container.decode(Kind.self, forKey: .kind),
+                  version: try container.decode(Int.self, forKey: .version),
+                  hash: try container.decode(String.self, forKey: .hash),
+                  size: try container.decode(Int.self, forKey: .size),
+                  url: try container.decode(String.self, forKey: .url),
+                  productIDs: try container.decode([String].self, forKey: .productIDs),
+                  publishedAt: try container.decode(String.self, forKey: .publishedAt),
+                  parameters: container.contains(.parameters)
+                    ? try container.decode(PlacementParameters.self, forKey: .parameters) : .init())
     }
 
     static func validID(_ value: String) -> Bool {
@@ -83,4 +111,16 @@ public struct FlowdeckContent: Sendable {
     public let source: Source
     /// Why an older cached or bundled package was selected, if applicable.
     public let fallbackReason: String?
+    public let parameters: PlacementParameters
+
+    init(placementID: String, kind: Placement.Kind, productIDs: [String], indexURL: URL,
+         source: Source, fallbackReason: String?, parameters: PlacementParameters = .init()) {
+        self.placementID = placementID
+        self.kind = kind
+        self.productIDs = productIDs
+        self.indexURL = indexURL
+        self.source = source
+        self.fallbackReason = fallbackReason
+        self.parameters = parameters
+    }
 }

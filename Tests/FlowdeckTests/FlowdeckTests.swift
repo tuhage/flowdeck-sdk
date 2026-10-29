@@ -21,10 +21,11 @@ func zip(_ files: [(String, String)] = [("index.html", "<h1>Flowdeck</h1>")]) th
     return try #require(archive.data)
 }
 
-func placement(_ bytes: Data, version: Int = 1) -> Placement {
+func placement(_ bytes: Data, version: Int = 1, parameters: PlacementParameters = .init()) -> Placement {
     let hash = PackageCache.hash(bytes)
     return Placement(id: "paywall", kind: .paywall, version: version, hash: hash, size: bytes.count,
-                     url: "/v1/sdk/packages/\(hash)", productIDs: ["pro.weekly"], publishedAt: "2026-10-25T00:00:00Z")
+                     url: "/v1/sdk/packages/\(hash)", productIDs: ["pro.weekly"], publishedAt: "2026-10-25T00:00:00Z",
+                     parameters: parameters)
 }
 func manifestResponse(_ placements: [Placement], etag: String = "\"v1\"") throws -> HTTPResponse {
     HTTPResponse(data: try JSONEncoder().encode(Manifest(appID: "test", placements: placements)), status: 200, etag: etag)

@@ -32,7 +32,7 @@ public enum JSONValue: Codable, Sendable, Equatable {
 
 struct BridgeMessage: Decodable, Sendable {
     enum Method: String, Decodable, Sendable {
-        case getProducts, purchase, restore, getEntitlements, requestReview, close, openURL, event, completeOnboarding
+        case getParameters, getProducts, purchase, restore, getEntitlements, requestReview, close, openURL, event, completeOnboarding
     }
     let id: String
     let method: Method
@@ -108,6 +108,8 @@ final class BridgeRouter {
 
     private func execute(_ message: BridgeMessage) async throws -> JSONValue {
         switch message.method {
+        case .getParameters:
+            return try .encoded(content.parameters)
         case .getProducts:
             return try .encoded(await commerce.products(ids: content.productIDs))
         case .purchase:

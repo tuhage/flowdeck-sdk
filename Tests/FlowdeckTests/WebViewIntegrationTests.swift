@@ -12,7 +12,10 @@ final class WebViewIntegrationTests: XCTestCase {
         let bytes = try zip([("index.html", """
             <!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
             <title>Flowdeck bridge test</title><h1>Local HTML</h1>
-            <script>window.bridgeAtStart = typeof window.flowdeck;</script>
+            <script>
+              window.bridgeAtStart = typeof window.flowdeck;
+              window.parametersAtStart = window.flowdeck.parameters;
+            </script>
             """)])
         let index = try PackageCache(root: directory).store(bytes, hash: PackageCache.hash(bytes))
         var events: [FlowdeckEvent] = []
@@ -23,7 +26,8 @@ final class WebViewIntegrationTests: XCTestCase {
             if case .loaded = event { loaded.fulfill() }
         }
         let content = FlowdeckContent(placementID: "onboarding", kind: .onboarding, productIDs: [],
-                                      indexURL: index, source: .bundled, fallbackReason: nil)
+                                      indexURL: index, source: .bundled, fallbackReason: nil,
+                                      parameters: try parameters(#"{"ask_review":false,"headline":"Welcome","delay":1.5}"#))
         let controller = FlowdeckViewController(flowdeck: sdk, content: content)
         let window: UIWindow
         if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene { window = UIWindow(windowScene: scene) }
@@ -36,18 +40,26 @@ final class WebViewIntegrationTests: XCTestCase {
         let web = try XCTUnwrap(controller.view.subviews.compactMap { $0 as? WKWebView }.first)
         let bridgeAtStart = try await web.evaluateJavaScript("window.bridgeAtStart") as? String
         XCTAssertEqual(bridgeAtStart, "object")
+        let parametersAtStart = try await web.evaluateJavaScript("window.parametersAtStart") as? [String: Any]
+        XCTAssertEqual(parametersAtStart?["ask_review"] as? Bool, false)
+        XCTAssertEqual(parametersAtStart?["headline"] as? String, "Welcome")
+        XCTAssertEqual(parametersAtStart?["delay"] as? Double, 1.5)
         let result = try await web.callAsyncJavaScript("""
             const responses = [];
             window.addEventListener('flowdeck:result', e => responses.push(e.detail.method));
+            const parameters = await window.flowdeck.getParameters();
+            const parametersMatch = JSON.stringify(parameters, Object.keys(parameters).sort()) ===
+              JSON.stringify(window.parametersAtStart, Object.keys(window.parametersAtStart).sort());
             await window.flowdeck.event('button_clicked', {step: 2, quote: "it's working"});
             let blocked = false;
             try { await window.flowdeck.purchase('not.listed'); } catch (e) { blocked = e.code === 'native_error'; }
             await window.flowdeck.completeOnboarding();
-            return {blocked, responses, hasBridge: typeof window.flowdeck.close === 'function'};
+            return {blocked, responses, parametersMatch, hasBridge: typeof window.flowdeck.close === 'function'};
             """, arguments: [:], in: nil, contentWorld: .page) as? [String: Any]
         XCTAssertEqual(result?["blocked"] as? Bool, true)
         XCTAssertEqual(result?["hasBridge"] as? Bool, true)
-        XCTAssertEqual(result?["responses"] as? [String], ["event", "purchase", "completeOnboarding"])
+        XCTAssertEqual(result?["parametersMatch"] as? Bool, true)
+        XCTAssertEqual(result?["responses"] as? [String], ["getParameters", "event", "purchase", "completeOnboarding"])
         XCTAssertTrue(events.contains { if case .event(_, "button_clicked", let props) = $0 { return props["step"] == .number(2) }; return false })
         XCTAssertEqual(events.filter { if case .onboardingCompleted = $0 { return true }; return false }.count, 1)
         let iframeResult = try await web.callAsyncJavaScript("""

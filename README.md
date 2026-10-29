@@ -89,7 +89,9 @@ and revocations. Keep only one Flowdeck instance per app StoreKit lifecycle.
 
 The contract is `flowdeck-server/docs/API.md`: `GET /v1/sdk/placements` returns
 `app_id` and placements with `id`, `kind`, `version`, `hash`, `size`, relative `url`,
-`product_ids`, and `published_at`. Subsequent requests send the persisted ETag in
+`product_ids`, `published_at`, and `parameters` (a string/number/boolean map).
+Missing `parameters` is treated as an empty map for older servers and disk caches.
+Subsequent requests send the persisted ETag in
 `If-None-Match`; a 304 reuses the manifest. Simultaneous manifest requests share
 one in-flight refresh. `refreshPlacements()` surfaces network errors explicitly;
 `prepare()` applies the fallback policy below.
@@ -133,6 +135,49 @@ let configuration = FlowdeckConfiguration(
 )
 ```
 
+## Placement parameters
+
+Set parameters on each placement in Flowdeck, for example `ask_review` as a boolean
+on `onboarding`. Parameters belong to the placement; updates require no new HTML
+package or version. The next manifest refresh picks them up, even when the ZIP is
+already cached. They persist with the manifest and last-ready placement for offline use.
+
+Swift can read typed values from `Placement` returned by `refreshPlacements()` or
+from prepared `FlowdeckContent`:
+
+```swift
+let content = try await sdk.prepare(placementID: "onboarding")
+let shouldAskReview = content.parameters.bool("ask_review", default: false)
+let headline = content.parameters.string("headline", default: "Welcome")
+let delay = content.parameters.number("review_delay", default: 0) // Double
+// Use shouldAskReview to gate your app's review request at the intended step.
+
+// Read placement settings without downloading an HTML package:
+let placements = try await sdk.refreshPlacements()
+let onboarding = placements.first { $0.id == "onboarding" }
+let askReview = onboarding?.parameters.bool("ask_review", default: false) ?? false
+```
+
+Accessors use your default for missing keys or mismatched types; values are never
+coerced. `false`, `0`, and an empty string remain valid values. A presentation keeps
+the parameters selected when its content was prepared; it does not update live.
+Package fallback uses the latest known manifest's parameters, even for an older or
+bundled ZIP. If the manifest is unavailable, the last-ready descriptor supplies its
+saved parameters; a bundle alone has an empty map.
+
+HTML can read the frozen `window.flowdeck.parameters` object synchronously, including
+from the first inline script. `getParameters()` returns the same presentation values
+through the native Promise bridge and emits the usual `flowdeck:result` event:
+
+```js
+const { ask_review = false } = window.flowdeck.parameters;
+// At the intended onboarding step; requesting does not guarantee a visible prompt.
+if (ask_review === true) {
+  try { await window.flowdeck.requestReview(); } catch (error) { /* continue onboarding */ }
+}
+const parameters = await window.flowdeck.getParameters();
+```
+
 ## HTML bridge reference
 
 `window.flowdeck` is injected at document start, in the local main frame. Every
@@ -143,6 +188,7 @@ at the WebKit transport boundary. Purchase cancellation and pending approval
 
 | Method | Resolved value / effect |
 |---|---|
+| `getParameters()` | This presentation's placement parameters as a string/number/boolean object. No network refresh. |
 | `getProducts()` | Array of available StoreKit products from this placement's `product_ids`, in manifest order. Unavailable IDs are omitted. |
 | `purchase(productId)` | `{status: "purchased" \| "cancelled" \| "pending", transaction?, entitlements: [...]}`. Rejects IDs outside this placement. Verifies and finishes successful transactions. |
 | `restore()` | Calls `AppStore.sync()`, then returns active verified entitlements. May show Apple's sign-in UI in a real app; invoke only from the user's Restore button. |

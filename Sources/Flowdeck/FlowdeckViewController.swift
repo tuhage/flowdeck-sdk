@@ -55,10 +55,8 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.userContentController.addScriptMessageHandler(Handler(owner: self), contentWorld: .page, name: "flowdeck")
-        if let url = Bundle.module.url(forResource: "bridge", withExtension: "js"),
-           let script = try? String(contentsOf: url, encoding: .utf8) {
-            configuration.userContentController.addUserScript(WKUserScript(source: script,
-                injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        if let script = try? BridgeScript.userScript(parameters: content.parameters) {
+            configuration.userContentController.addUserScript(script)
         }
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self

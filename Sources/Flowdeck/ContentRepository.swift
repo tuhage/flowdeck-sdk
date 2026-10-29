@@ -116,7 +116,8 @@ actor ContentRepository {
             failure = error
             current = snapshot()?.manifest
         }
-        if let placement = current?.placements.first(where: { $0.id == id }) {
+        let placement = current?.placements.first(where: { $0.id == id })
+        if let placement {
             do {
                 if let index = try? cache.cached(placement.hash) {
                     try remember(placement)
@@ -142,13 +143,14 @@ actor ContentRepository {
         if let data = try? Data(contentsOf: readyURL),
            let ready = try? JSONDecoder().decode(Placement.self, from: data), ready.id == id,
            (try? ready.validate()) != nil, let index = try? cache.cached(ready.hash) {
-            return content(ready, index, .cache, failure)
+            return content(ready, index, .cache, failure, parameters: placement?.parameters)
         }
         if let fallback = configuration.fallbackPackages.first(where: { $0.placementID == id }) {
             let bytes = try Data(contentsOf: fallback.zipURL, options: .mappedIfSafe)
             let index = try cache.store(bytes, hash: fallback.sha256)
             return FlowdeckContent(placementID: id, kind: fallback.kind, productIDs: fallback.productIDs,
-                                   indexURL: index, source: .bundled, fallbackReason: failure?.localizedDescription)
+                                   indexURL: index, source: .bundled, fallbackReason: failure?.localizedDescription,
+                                   parameters: placement?.parameters ?? .init())
         }
         throw failure ?? FlowdeckError.placementNotFound(id)
     }
@@ -158,8 +160,9 @@ actor ContentRepository {
             to: cache.root.appendingPathComponent("ready-\(placement.id).json"), options: .atomic)
     }
     private func content(_ placement: Placement, _ index: URL, _ source: FlowdeckContent.Source,
-                         _ failure: Error?) -> FlowdeckContent {
+                         _ failure: Error?, parameters: PlacementParameters? = nil) -> FlowdeckContent {
         FlowdeckContent(placementID: placement.id, kind: placement.kind, productIDs: placement.productIDs,
-                        indexURL: index, source: source, fallbackReason: failure?.localizedDescription)
+                        indexURL: index, source: source, fallbackReason: failure?.localizedDescription,
+                        parameters: parameters ?? placement.parameters)
     }
 }

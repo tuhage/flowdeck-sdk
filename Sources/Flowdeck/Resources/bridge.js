@@ -14,6 +14,8 @@
     return response.result === undefined ? null : response.result;
   };
   Object.defineProperty(window, 'flowdeck', { value: Object.freeze({
+    parameters: Object.freeze(parameters),
+    getParameters: () => call('getParameters'),
     getProducts: () => call('getProducts'),
     purchase: productId => call('purchase', { productId }),
     restore: () => call('restore'),
