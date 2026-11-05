@@ -107,11 +107,38 @@ also checks the main frame's URL. The API key never enters the page or WebView.
 The server's sandbox CSP intentionally gives the page an opaque JavaScript origin;
 trust is based on the validated document URL, not a relaxed wildcard origin check.
 
+### Fallback live origins
+
+`fallbackOrigins` is an optional, explicit list of extra origins that serve the
+same SDK API and live routes (for example a regional proxy as `baseURL` and the
+main Flowdeck host as a fallback). Each entry follows the `baseURL` rules; wildcards,
+paths and duplicates are rejected. Without it, behavior is unchanged.
+
+```swift
+let sdk = try Flowdeck(configuration: .init(
+    apiKey: "YOUR_APP_SDK_KEY",
+    baseURL: URL(string: "https://flowdeck.regional-proxy.example")!,
+    fallbackOrigins: [URL(string: "https://api.useflowdeck.com")!]
+))
+```
+
+The manifest is requested from `baseURL`, then from each fallback origin in order,
+after a connection error, timeout or HTTP error; these origins receive the API key.
+The live page starts on the origin that served the manifest. If its main frame
+fails (connection error, timeout or HTTP error), the same `/live/{app_id}/{placement}/`
+path is opened on the next fallback origin. Failure order:
+primary origin → fallback origins in order → bundled page → Retry/Close.
+Placement kind, product IDs and parameters always come from the manifest.
+Each attempt uses a fresh WebView; the bridge runs only in the main frame of the
+exact entry path on the origin currently loaded. Redirects, including between
+configured origins, are blocked and show Retry/Close without trying another origin.
+`fallbackReason` records the previous load error.
+
 ### Offline and load-error fallback
 
 Configure an app-bundled ZIP for each placement that needs an offline page.
 If the manifest cannot be fetched, or the live main frame fails to load because
-of connectivity, timeout, or an HTTP error, the SDK verifies and shows that
+of connectivity, timeout, or an HTTP error (on every configured origin), the SDK verifies and shows that
 placement's bundled page. Without a usable bundle, native Retry/Close remains.
 A bundle that itself fails to load shows Retry/Close; fallback never loops.
 Blocked navigation and redirects do not trigger fallback.

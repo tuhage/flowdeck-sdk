@@ -51,7 +51,7 @@ actor ContentRepository {
     private let configuration: FlowdeckConfiguration
     private let transport: any HTTPTransport
     let cache: PackageCache
-    private var refreshTask: Task<Manifest, Error>?
+    private var refreshTask: Task<(manifest: Manifest, origin: Int), Error>?
 
     init(configuration: FlowdeckConfiguration, transport: (any HTTPTransport)? = nil) throws {
         try configuration.validate()
@@ -69,17 +69,21 @@ actor ContentRepository {
         return value
     }
 
-    private func request(_ path: String, etag: String? = nil) -> URLRequest {
-        var request = URLRequest(url: configuration.baseURL.appendingPathComponent(String(path.dropFirst())),
+    /// The configured origin first, then the allowlisted fallback origins in order.
+    private var origins: [URL] { [configuration.baseURL] + configuration.fallbackOrigins }
+
+    private func request(_ path: String, origin: URL, etag: String? = nil) -> URLRequest {
+        var request = URLRequest(url: origin.appendingPathComponent(String(path.dropFirst())),
                                  cachePolicy: .reloadIgnoringLocalCacheData)
         request.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue(etag, forHTTPHeaderField: "If-None-Match")
         return request
     }
 
-    func refresh() async throws -> [Placement] { try await manifest().placements }
+    func refresh() async throws -> [Placement] { try await manifest().manifest.placements }
 
-    private func manifest() async throws -> Manifest {
+    /// A manifest and the index of the origin that served it.
+    private func manifest() async throws -> (manifest: Manifest, origin: Int) {
         if let refreshTask { return try await refreshTask.value }
         let task = Task { try await fetchManifest() }
         refreshTask = task
@@ -87,9 +91,19 @@ actor ContentRepository {
         return try await task.value
     }
 
-    private func fetchManifest() async throws -> Manifest {
+    private func fetchManifest() async throws -> (manifest: Manifest, origin: Int) {
+        var failure: any Error = FlowdeckError.invalidResponse
+        for (index, origin) in origins.enumerated() {
+            try Task.checkCancellation()
+            do { return (try await fetchManifest(from: origin), index) }
+            catch { failure = error }
+        }
+        throw failure
+    }
+
+    private func fetchManifest(from origin: URL) async throws -> Manifest {
         let previous = snapshot()
-        let response = try await transport.get(request("/v1/sdk/placements", etag: previous?.etag))
+        let response = try await transport.get(request("/v1/sdk/placements", origin: origin, etag: previous?.etag))
         if response.status == 304 {
             guard let previous else { throw FlowdeckError.invalidResponse }
             return previous.manifest
@@ -105,23 +119,33 @@ actor ContentRepository {
 
     func resolve(_ id: String) async throws -> FlowdeckContent {
         guard Placement.validID(id) else { throw FlowdeckError.placementNotFound(id) }
-        let current: Manifest
+        let current: (manifest: Manifest, origin: Int)
         do {
             current = try await manifest()
         } catch {
             try Task.checkCancellation()
             return try bundledFallback(id, failure: error)
         }
-        guard let placement = current.placements.first(where: { $0.id == id }) else {
+        guard let placement = current.manifest.placements.first(where: { $0.id == id }) else {
             throw FlowdeckError.placementNotFound(id)
         }
+        // The live page starts on the origin that served the manifest; origins that already failed are skipped.
+        let pages = try origins[current.origin...].map {
+            try LivePage.url(baseURL: $0, appID: current.manifest.appID, placementID: id)
+        }
         return FlowdeckContent(placementID: id, kind: placement.kind, productIDs: placement.productIDs,
-            indexURL: try LivePage.url(baseURL: configuration.baseURL, appID: current.appID, placementID: id),
-            source: .network, fallbackReason: nil, parameters: placement.parameters)
+            indexURL: pages[0], source: .network, fallbackReason: nil, parameters: placement.parameters,
+            liveAlternates: Array(pages.dropFirst()))
     }
 
     func fallback(for content: FlowdeckContent, failure: any Error) throws -> FlowdeckContent {
         guard content.source == .network else { throw failure }
+        if let next = content.liveAlternates.first {
+            return FlowdeckContent(placementID: content.placementID, kind: content.kind,
+                productIDs: content.productIDs, indexURL: next, source: .network,
+                fallbackReason: failure.localizedDescription, parameters: content.parameters,
+                liveAlternates: Array(content.liveAlternates.dropFirst()))
+        }
         return try loadBundle(content.placementID, failure: failure, parameters: content.parameters)
     }
 

@@ -229,6 +229,7 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
               (content.source == .bundled || navigationResponse.isForMainFrame),
               allows(navigationResponse.response.url) else {
             decisionHandler(.cancel)
+            handledLoadFailure = true
             show(FlowdeckError.navigationBlocked)
             return
         }
@@ -257,6 +258,12 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
         // Policy cancellations (including rejected redirects) are not connectivity failures.
         guard (error as NSError).domain != NSURLErrorDomain || (error as NSError).code != NSURLErrorCancelled else { return }
         handledLoadFailure = true
+        // WebKit reports a load cancelled by navigation policy (such as a blocked cross-origin redirect)
+        // as "frame load interrupted"; it must not open another origin or the bundle.
+        if (error as NSError).domain == "WebKitErrorDomain", (error as NSError).code == 102 {
+            show(FlowdeckError.navigationBlocked)
+            return
+        }
         guard content.source == .network, !rejectedRedirect else { show(error); return }
         webView.isHidden = true
         let flowdeck = flowdeck

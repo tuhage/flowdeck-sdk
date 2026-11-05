@@ -112,9 +112,12 @@ public struct FlowdeckContent: Sendable {
     /// Why an older cached or bundled package was selected, if applicable.
     public let fallbackReason: String?
     public let parameters: PlacementParameters
+    /// The same live page on the remaining allowlisted fallback origins, in order.
+    let liveAlternates: [URL]
 
     init(placementID: String, kind: Placement.Kind, productIDs: [String], indexURL: URL,
-         source: Source, fallbackReason: String?, parameters: PlacementParameters = .init()) {
+         source: Source, fallbackReason: String?, parameters: PlacementParameters = .init(),
+         liveAlternates: [URL] = []) {
         self.placementID = placementID
         self.kind = kind
         self.productIDs = productIDs
@@ -122,5 +125,6 @@ public struct FlowdeckContent: Sendable {
         self.source = source
         self.fallbackReason = fallbackReason
         self.parameters = parameters
+        self.liveAlternates = liveAlternates
     }
 }

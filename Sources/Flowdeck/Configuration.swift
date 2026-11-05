@@ -10,10 +10,13 @@ public struct FlowdeckConfiguration: Sendable {
     public let cacheDirectory: URL
     /// Optional attribution identity, for example AppMetricKit.appAccountToken.
     public let appAccountToken: UUID?
+    /// Optional allowlisted origins tried in order when `baseURL` cannot serve the manifest or live page.
+    public let fallbackOrigins: [URL]
 
     public init(apiKey: String, baseURL: URL, protocolClasses: [URLProtocol.Type] = [],
                 fallbackPackages: [FlowdeckFallbackPackage] = [],
-                cacheDirectory: URL? = nil, appAccountToken: UUID? = nil) {
+                cacheDirectory: URL? = nil, appAccountToken: UUID? = nil,
+                fallbackOrigins: [URL] = []) {
         self.apiKey = apiKey
         self.baseURL = baseURL
         self.protocolClasses = protocolClasses
@@ -22,15 +25,26 @@ public struct FlowdeckConfiguration: Sendable {
             for: .cachesDirectory, in: .userDomainMask
         )[0].appendingPathComponent("Flowdeck", isDirectory: true)
         self.appAccountToken = appAccountToken
+        self.fallbackOrigins = fallbackOrigins
+    }
+
+    static func validOrigin(_ url: URL) -> Bool {
+        let local = ["localhost", "127.0.0.1", "[::1]"].contains(url.host ?? "")
+        return url.host != nil && url.user == nil && url.password == nil
+            && url.query == nil && url.fragment == nil
+            && (url.path.isEmpty || url.path == "/")
+            && (url.scheme == "https" || (local && url.scheme == "http"))
+    }
+
+    private static func originKey(_ url: URL) -> String {
+        "\(url.scheme ?? "")://\(url.host?.lowercased() ?? ""):\(url.port ?? (url.scheme == "https" ? 443 : 80))"
     }
 
     func validate() throws {
-        let local = ["localhost", "127.0.0.1", "[::1]"].contains(baseURL.host ?? "")
+        let origins = [baseURL] + fallbackOrigins
         guard !apiKey.isEmpty, !apiKey.contains("\n"), !apiKey.contains("\r"),
-              baseURL.host != nil, baseURL.user == nil, baseURL.password == nil,
-              baseURL.query == nil, baseURL.fragment == nil,
-              baseURL.path.isEmpty || baseURL.path == "/",
-              baseURL.scheme == "https" || (local && baseURL.scheme == "http"),
+              origins.allSatisfy(Self.validOrigin),
+              Set(origins.map(Self.originKey)).count == origins.count,
               cacheDirectory.isFileURL,
               Set(fallbackPackages.map(\.placementID)).count == fallbackPackages.count else {
             throw FlowdeckError.invalidConfiguration
