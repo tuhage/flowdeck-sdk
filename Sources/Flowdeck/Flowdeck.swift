@@ -72,5 +72,9 @@ public final class Flowdeck {
         }
     }
 
+    func fallback(for content: FlowdeckContent, failure: any Error) async throws -> FlowdeckContent {
+        try await repository.fallback(for: content, failure: failure)
+    }
+
     public func currentEntitlements() async -> [FlowdeckEntitlement] { await commerce.entitlements() }
 }

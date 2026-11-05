@@ -20,7 +20,7 @@ public extension Flowdeck {
 
 @MainActor
 public final class FlowdeckViewController: UIViewController, WKNavigationDelegate, UIAdaptivePresentationControllerDelegate {
-    public let content: FlowdeckContent
+    public private(set) var content: FlowdeckContent
     private let flowdeck: Flowdeck
     private var webView: WKWebView!
     private var router: BridgeRouter!
@@ -29,6 +29,8 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
     private let analytics: PresentationAnalytics
     private var didClose = false
     private var rejectedRedirect = false
+    private var handledLoadFailure = false
+    private var fallbackTask: Task<Void, Never>?
     private var observationID: UUID?
     var onDismiss: (() -> Void)?
     // The content controller retains its handler; the handler holds only a weak reference back.
@@ -58,6 +60,15 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
     public override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
+        configureWebView()
+        configureErrorView()
+        reload()
+    }
+
+    private func configureWebView() {
+        webView?.navigationDelegate = nil
+        webView?.stopLoading()
+        webView?.removeFromSuperview()
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.userContentController.addScriptMessageHandler(Handler(owner: self), contentWorld: .page, name: "flowdeck")
@@ -67,7 +78,7 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
         webView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(webView)
+        view.insertSubview(webView, at: 0)
         NSLayoutConstraint.activate([
             webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -82,8 +93,6 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
             }
             SKStoreReviewController.requestReview(in: scene)
         }, openURL: { url in await UIApplication.shared.open(url) }, analytics: analytics)
-        configureErrorView()
-        reload()
     }
 
     public override func viewDidAppear(_ animated: Bool) {
@@ -138,6 +147,7 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
     }
 
     @objc private func reload() {
+        handledLoadFailure = false
         rejectedRedirect = false
         errorView.isHidden = true
         webView.isHidden = false
@@ -189,6 +199,8 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
     func reportClosed() {
         guard !didClose else { return }
         didClose = true
+        fallbackTask?.cancel()
+        fallbackTask = nil
         analytics.close()
         flowdeck.emit(.closed(placementID: content.placementID))
     }
@@ -206,6 +218,7 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
     }
     public func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
         rejectedRedirect = true
+        handledLoadFailure = true
         webView.stopLoading()
         show(FlowdeckError.navigationBlocked)
     }
@@ -221,16 +234,50 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
         }
         if let response = navigationResponse.response as? HTTPURLResponse, !(200..<300).contains(response.statusCode) {
             decisionHandler(.cancel)
-            show(FlowdeckError.httpStatus(response.statusCode))
+            handleLoadFailure(FlowdeckError.httpStatus(response.statusCode), in: webView)
             return
         }
         decisionHandler(.allow)
     }
 
-    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { flowdeck.emit(.loaded(content)) }
-    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) { show(error) }
-    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) { show(error) }
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard webView === self.webView, !didClose, fallbackTask == nil else { return }
+        flowdeck.emit(.loaded(content))
+    }
+    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+        handleLoadFailure(error, in: webView)
+    }
+    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+        handleLoadFailure(error, in: webView)
+    }
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { show(FlowdeckError.invalidResponse) }
+
+    private func handleLoadFailure(_ error: any Error, in failedWebView: WKWebView) {
+        guard failedWebView === webView, !didClose, !handledLoadFailure, fallbackTask == nil else { return }
+        // Policy cancellations (including rejected redirects) are not connectivity failures.
+        guard (error as NSError).domain != NSURLErrorDomain || (error as NSError).code != NSURLErrorCancelled else { return }
+        handledLoadFailure = true
+        guard content.source == .network, !rejectedRedirect else { show(error); return }
+        webView.isHidden = true
+        let flowdeck = flowdeck
+        let failedContent = content
+        fallbackTask = Task { [weak self] in
+            do {
+                let fallback = try await flowdeck.fallback(for: failedContent, failure: error)
+                guard let self, !Task.isCancelled, !self.didClose else { return }
+                self.content = fallback
+                // A fresh WebView isolates late network callbacks and replaces both script and router scope.
+                self.configureWebView()
+                self.reload()
+                self.fallbackTask = nil
+            } catch {
+                guard let self, !Task.isCancelled, !self.didClose else { return }
+                self.fallbackTask = nil
+                self.show(error)
+            }
+        }
+    }
+
     private func show(_ error: any Error) {
         webView.isHidden = true
         errorLabel.text = error.localizedDescription

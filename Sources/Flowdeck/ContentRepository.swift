@@ -120,11 +120,19 @@ actor ContentRepository {
             source: .network, fallbackReason: nil, parameters: placement.parameters)
     }
 
-    // Existing opt-in bundle support remains isolated pending the offline policy decision.
+    func fallback(for content: FlowdeckContent, failure: any Error) throws -> FlowdeckContent {
+        guard content.source == .network else { throw failure }
+        return try loadBundle(content.placementID, failure: failure, parameters: content.parameters)
+    }
+
     private func bundledFallback(_ id: String, failure: any Error) throws -> FlowdeckContent {
         let previous = snapshot()?.manifest
         let placement = previous?.placements.first(where: { $0.id == id })
         if previous != nil, placement == nil { throw FlowdeckError.placementNotFound(id) }
+        return try loadBundle(id, failure: failure, parameters: placement?.parameters ?? .init())
+    }
+
+    private func loadBundle(_ id: String, failure: any Error, parameters: PlacementParameters) throws -> FlowdeckContent {
         guard let fallback = configuration.fallbackPackages.first(where: { $0.placementID == id }) else {
             throw failure
         }
@@ -132,6 +140,6 @@ actor ContentRepository {
         let index = try cache.store(bytes, hash: fallback.sha256)
         return FlowdeckContent(placementID: id, kind: fallback.kind, productIDs: fallback.productIDs,
             indexURL: index, source: .bundled, fallbackReason: failure.localizedDescription,
-            parameters: placement?.parameters ?? .init())
+            parameters: parameters)
     }
 }

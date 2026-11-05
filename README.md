@@ -56,7 +56,7 @@ Task { @MainActor in
     do {
         try await sdk.present(placementID: "onboarding", from: viewController)
     } catch {
-        // Show a retry action; there is no usable cached/bundled package.
+        // Show a retry action; preparation failed and no usable bundled fallback was available.
     }
 }
 
@@ -98,7 +98,7 @@ Update the SDK dependency and ship a new app build. Existing presentation and
 JavaScript APIs remain unchanged. `FlowdeckContent.indexURL` is now an HTTPS URL
 for network content, not a local file; `prepare()` does not prefetch a page.
 Old ZIP cache files are ignored. Apps must handle preparation failures and retain
-their native retry/fallback flow. WebView network and HTTP errors show Retry/Close.
+their native retry/fallback flow.
 
 Only the exact placement entry path on the configured origin receives the bridge.
 Other paths, origins, subframe navigations and HTTP redirects are blocked. Use
@@ -107,10 +107,42 @@ also checks the main frame's URL. The API key never enters the page or WebView.
 The server's sandbox CSP intentionally gives the page an opaque JavaScript origin;
 trust is based on the validated document URL, not a relaxed wildcard origin check.
 
-Existing opt-in `fallbackPackages` and `FlowdeckFallbackPackage` remain supported
-for manifest network failures while the offline policy is pending. That isolated
-legacy path still requires ZIPFoundation. No previously viewed remote page fallback
-has been added. Bundled fallback uses the existing verified local-file boundary.
+### Offline and load-error fallback
+
+Configure an app-bundled ZIP for each placement that needs an offline page.
+If the manifest cannot be fetched, or the live main frame fails to load because
+of connectivity, timeout, or an HTTP error, the SDK verifies and shows that
+placement's bundled page. Without a usable bundle, native Retry/Close remains.
+A bundle that itself fails to load shows Retry/Close; fallback never loops.
+Blocked navigation and redirects do not trigger fallback.
+
+Add the ZIP to the app target's resources (Copy Bundle Resources). It must contain
+`index.html` at its root and relative assets as regular files, without explicit
+directory entries. Record its SHA-256 using `shasum -a 256 fallback.zip`:
+
+```swift
+let fallback = FlowdeckFallbackPackage(
+    placementID: "onboarding",
+    kind: .onboarding,
+    zipURL: Bundle.main.url(forResource: "fallback", withExtension: "zip")!,
+    sha256: "YOUR_64_CHARACTER_LOWERCASE_SHA256",
+    productIDs: [] // For paywalls, list the bundle's approved StoreKit product IDs.
+)
+let sdk = try Flowdeck(configuration: .init(
+    apiKey: "YOUR_APP_SDK_KEY",
+    baseURL: URL(string: "https://flowdeck.example.com")!,
+    fallbackPackages: [fallback]
+))
+```
+
+ZIPFoundation remains necessary for bundled ZIP verification/extraction.
+No previously viewed remote page is saved or used as an offline fallback.
+The bundled page retains its local-file bridge boundary and its own kind/product
+IDs. After a live load failure, it receives the presentation's parameters.
+`FlowdeckViewController.content` and the `loaded` event identify the active
+bundled content; `fallbackReason` records the live load error.
+Existing manifest-failure behavior (including authoritative placement removal)
+is unchanged.
 
 ## Placement parameters
 
@@ -137,7 +169,7 @@ let askReview = onboarding?.parameters.bool("ask_review", default: false) ?? fal
 Accessors use your default for missing keys or mismatched types; values are never
 coerced. `false`, `0`, and an empty string remain valid values. A presentation keeps
 the parameters selected when its content was prepared; it does not update live.
-A legacy bundle uses the last manifest’s parameters when available; otherwise its map is empty.
+On a manifest failure, a bundle uses the last manifest’s parameters when available; otherwise its map is empty.
 
 HTML can read the frozen `window.flowdeck.parameters` object synchronously, including
 from the first inline script. `getParameters()` returns the same presentation values
