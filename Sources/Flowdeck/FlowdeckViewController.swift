@@ -28,6 +28,7 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
     private let errorLabel = UILabel()
     private let analytics: PresentationAnalytics
     private var didClose = false
+    private var rejectedRedirect = false
     private var observationID: UUID?
     var onDismiss: (() -> Void)?
     // The content controller retains its handler; the handler holds only a weak reference back.
@@ -60,7 +61,7 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.userContentController.addScriptMessageHandler(Handler(owner: self), contentWorld: .page, name: "flowdeck")
-        if let script = try? BridgeScript.userScript(parameters: content.parameters) {
+        if let script = try? BridgeScript.userScript(parameters: content.parameters, trustedURL: content.source == .bundled ? nil : content.indexURL) {
             configuration.userContentController.addUserScript(script)
         }
         webView = WKWebView(frame: .zero, configuration: configuration)
@@ -105,7 +106,7 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
     }
 
     private func sendEntitlements(_ values: [FlowdeckEntitlement]) {
-        guard let json = try? JSONValue.encoded(values), let data = try? JSONEncoder().encode(json),
+        guard !rejectedRedirect, allows(webView.url), let json = try? JSONValue.encoded(values), let data = try? JSONEncoder().encode(json),
               let object = try? JSONSerialization.jsonObject(with: data) else { return }
         webView.callAsyncJavaScript(
             "window.dispatchEvent(new CustomEvent('flowdeck:entitlements', {detail: values}));",
@@ -137,9 +138,14 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
     }
 
     @objc private func reload() {
+        rejectedRedirect = false
         errorView.isHidden = true
         webView.isHidden = false
-        webView.loadFileURL(content.indexURL, allowingReadAccessTo: content.indexURL.deletingLastPathComponent())
+        if content.source == .bundled {
+            webView.loadFileURL(content.indexURL, allowingReadAccessTo: content.indexURL.deletingLastPathComponent())
+        } else {
+            webView.load(URLRequest(url: content.indexURL, cachePolicy: .reloadIgnoringLocalCacheData))
+        }
     }
 
     static func isPackageURL(_ url: URL?, root: URL) -> Bool {
@@ -149,9 +155,15 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
         return path.hasPrefix(root.resolvingSymlinksInPath().standardizedFileURL.path + "/")
     }
 
+    private func allows(_ url: URL?) -> Bool {
+        content.source == .bundled
+            ? Self.isPackageURL(url, root: content.indexURL.deletingLastPathComponent())
+            : LivePage.allows(url, trusted: content.indexURL)
+    }
+
     private func receive(_ message: WKScriptMessage, reply: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
-        guard !didClose, message.frameInfo.isMainFrame,
-              Self.isPackageURL(message.frameInfo.request.url, root: content.indexURL.deletingLastPathComponent()),
+        guard !didClose, !rejectedRedirect, message.frameInfo.isMainFrame,
+              allows(message.frameInfo.request.url), allows(webView.url),
               JSONSerialization.isValidJSONObject(message.body),
               let data = try? JSONSerialization.data(withJSONObject: message.body),
               let parsed = try? BridgeMessage.parse(data) else {
@@ -184,13 +196,37 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
 
     public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                         decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
-        let allowed = Self.isPackageURL(navigationAction.request.url, root: content.indexURL.deletingLastPathComponent())
+        let allowed = (content.source == .bundled || navigationAction.targetFrame?.isMainFrame == true)
+            && allows(navigationAction.request.url)
         decisionHandler(allowed ? .allow : .cancel)
         if !allowed {
             flowdeck.emit(.failed(placementID: content.placementID,
                                      message: FlowdeckError.navigationBlocked.localizedDescription))
         }
     }
+    public func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
+        rejectedRedirect = true
+        webView.stopLoading()
+        show(FlowdeckError.navigationBlocked)
+    }
+
+    public func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+                        decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void) {
+        guard !rejectedRedirect,
+              (content.source == .bundled || navigationResponse.isForMainFrame),
+              allows(navigationResponse.response.url) else {
+            decisionHandler(.cancel)
+            show(FlowdeckError.navigationBlocked)
+            return
+        }
+        if let response = navigationResponse.response as? HTTPURLResponse, !(200..<300).contains(response.statusCode) {
+            decisionHandler(.cancel)
+            show(FlowdeckError.httpStatus(response.statusCode))
+            return
+        }
+        decisionHandler(.allow)
+    }
+
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { flowdeck.emit(.loaded(content)) }
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) { show(error) }
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) { show(error) }

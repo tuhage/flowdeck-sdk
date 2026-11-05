@@ -61,7 +61,7 @@ public final class Flowdeck {
 
     func removeObserver(_ id: UUID) { observers[id] = nil }
 
-    /// Refresh the published list using ETag. Throws on network failure; prepare uses offline fallbacks.
+    /// Refresh the published list using ETag. Throws on network failure; prepare retains the opt-in bundled fallback.
     public func refreshPlacements() async throws -> [Placement] { try await repository.refresh() }
 
     public func prepare(placementID: String) async throws -> FlowdeckContent {

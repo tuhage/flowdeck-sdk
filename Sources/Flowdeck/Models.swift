@@ -21,7 +21,7 @@ public enum FlowdeckError: Error, LocalizedError, Sendable {
         case .unverifiedTransaction: "StoreKit transaction could not be verified."
         case .purchaseInProgress: "A purchase or restore is already in progress."
         case .unavailableScene: "No active window scene is available."
-        case .navigationBlocked: "Navigation outside the local package is blocked."
+        case .navigationBlocked: "Navigation outside the trusted placement is blocked."
         }
     }
 }
@@ -95,7 +95,7 @@ struct Manifest: Codable, Sendable {
     let placements: [Placement]
     enum CodingKeys: String, CodingKey { case appID = "app_id", placements }
     func validate() throws {
-        guard !appID.isEmpty, Set(placements.map(\.id)).count == placements.count else {
+        guard Placement.validID(appID), Set(placements.map(\.id)).count == placements.count else {
             throw FlowdeckError.invalidManifest
         }
         try placements.forEach { try $0.validate() }

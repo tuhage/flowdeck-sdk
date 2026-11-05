@@ -1,14 +1,14 @@
 # Flowdeck SDK
 
 Swift 6 / iOS 16+ SDK for published Flowdeck paywall and onboarding HTML. It loads
-verified local files in WKWebView and owns StoreKit 2 purchases and restoration.
+the placement’s live HTTPS page in WKWebView and owns StoreKit 2 purchases and restoration.
 macOS 13+ supports building and testing the core only. No A/B assignment is included.
 
 ## Install and configure
 
 Add `.package(url: "https://github.com/tuhage/flowdeck-sdk.git", branch: "main")`
 and the `Flowdeck` product to your app. ZIPFoundation 0.9.20 is the sole runtime
-dependency, used for bounded ZIP extraction.
+dependency, retained only for the existing opt-in bundled fallback.
 
 Create one SDK instance on the main actor and keep it alive for the app lifetime:
 
@@ -40,7 +40,7 @@ func makeFlowdeck() throws -> Flowdeck {
 ```
 
 `baseURL` is an HTTPS origin, without `/v1` or a path prefix. HTTP is accepted only
-for loopback development. Requests use `Authorization: Bearer <apiKey>`; redirects
+for loopback development. Native API requests use `Authorization: Bearer <apiKey>`; redirects
 are rejected. The key is never injected into HTML. Do not put an admin token here.
 
 ## Present from SwiftUI or UIKit
@@ -71,7 +71,7 @@ let content = try await sdk.prepare(placementID: "paywall")
 let entitlements = await sdk.currentEntitlements()
 ```
 
-SwiftUI supplies loading, failure and retry states. Local WebView load failures
+SwiftUI supplies loading, failure and retry states. WebView load failures
 also have native Retry and Close buttons. `close()` dismisses a UIKit modal or a
 SwiftUI sheet/fullScreenCover. It never marks onboarding complete. The SDK does
 not persist onboarding state, unlock features, schedule trial reminders, or bypass
@@ -80,67 +80,43 @@ and retry gate before deciding whether to present onboarding or home.
 
 `onEvent` runs on the main actor: `loaded`, `bridge`, authored `event`,
 `onboardingCompleted`, `closed`, `entitlementsChanged`, and `failed`. A successful
-`prepare` only resolves files; `loaded` means WKWebView finished loading them.
+`prepare` resolves metadata and the live URL; `loaded` means WKWebView finished loading the page.
 StoreKit `Transaction.updates` is observed while the SDK lives; verified updates
 are finished and active entitlements are delivered, including delayed approvals
 and revocations. Keep only one Flowdeck instance per app StoreKit lifecycle.
 
-## ETag, cache, bundled fallback
+## Live pages and migration
 
-The contract is `flowdeck-server/docs/API.md`: `GET /v1/sdk/placements` returns
-`app_id` and placements with `id`, `kind`, `version`, `hash`, `size`, relative `url`,
-`product_ids`, `published_at`, and `parameters` (a string/number/boolean map).
-Missing `parameters` is treated as an empty map for older servers and disk caches.
-Subsequent requests send the persisted ETag in
-`If-None-Match`; a 304 reuses the manifest. Simultaneous manifest requests share
-one in-flight refresh. `refreshPlacements()` surfaces network errors explicitly;
-`prepare()` applies the fallback policy below.
+The authenticated manifest supplies app ID, placement metadata, product IDs and
+parameters. The SDK then opens `baseURL/live/{app_id}/{placement}/` directly in
+WKWebView, without an Authorization header. A custom domain can be used as
+`baseURL` if it serves the app's SDK API and live routes. Publish and rollback
+take effect on the next page load. Manifest ETags persist; HTML and remote ZIPs
+are no longer downloaded, extracted or cached by the SDK.
 
-1. Fetch/revalidate the manifest; reuse a matching disk ZIP or download the new ZIP.
-2. On network/package failure use the last verified usable package for that placement.
-3. If there is no usable disk package, use the configured bundled ZIP.
-4. If none works, throw. An explicit placement removal in the last known manifest
-   is authoritative, including offline; it does not revive a retired screen.
+Update the SDK dependency and ship a new app build. Existing presentation and
+JavaScript APIs remain unchanged. `FlowdeckContent.indexURL` is now an HTTPS URL
+for network content, not a local file; `prepare()` does not prefetch a page.
+Old ZIP cache files are ignored. Apps must handle preparation failures and retain
+their native retry/fallback flow. WebView network and HTTP errors show Retry/Close.
 
-`FlowdeckContent.source` is `network`, `cache`, or `bundled`; `fallbackReason`
-explains a failed refresh/download. Cache namespaces include both origin and a
-hash of the SDK key; rotating the key starts a fresh namespace. OS cache eviction
-is recoverable via network or bundle. The SDK doesn't implement a cache quota or
-expiration; immutable package ZIPs remain until the OS/app removes the cache.
+Only the exact placement entry path on the configured origin receives the bridge.
+Other paths, origins, subframe navigations and HTTP redirects are blocked. Use
+relative assets and bridge `openURL()` for external links. Native message handling
+also checks the main frame's URL. The API key never enters the page or WebView.
+The server's sandbox CSP intentionally gives the page an opaque JavaScript origin;
+trust is based on the validated document URL, not a relaxed wildcard origin check.
 
-Every use checks SHA-256 against the manifest/bundled descriptor. ZIP extraction
-rejects path traversal, symlinks, duplicate/case-colliding names and non-files;
-requires root `index.html`; checks CRC; and limits ZIPs to 10 MiB, extracted bytes
-to 30 MiB, and entries to 500. Files are staged before use; corrupted extracted
-assets are repaired from the verified ZIP. Authenticated package URLs must match
-`/v1/sdk/packages/{hash}`. Local read access and navigation stay inside that
-package. Subframes cannot invoke the native bridge. Use relative bundled assets;
-remote top-level pages never receive a bridge.
-
-To add an app-bundled fallback, add a normalized ZIP as an app resource and record
-its SHA-256 (`shasum -a 256 fallback.zip`). The ZIP contains regular files, not
-explicit directory entries, with `index.html` at the root:
-
-```swift
-let fallback = FlowdeckFallbackPackage(
-    placementID: "paywall", kind: .paywall,
-    zipURL: Bundle.main.url(forResource: "fallback", withExtension: "zip")!,
-    sha256: "YOUR_64_CHARACTER_LOWERCASE_SHA256",
-    productIDs: ["your.approved.weekly", "your.approved.weekly.payg"]
-)
-let configuration = FlowdeckConfiguration(
-    apiKey: "YOUR_APP_SDK_KEY",
-    baseURL: URL(string: "https://flowdeck.example.com")!,
-    fallbackPackages: [fallback]
-)
-```
+Existing opt-in `fallbackPackages` and `FlowdeckFallbackPackage` remain supported
+for manifest network failures while the offline policy is pending. That isolated
+legacy path still requires ZIPFoundation. No previously viewed remote page fallback
+has been added. Bundled fallback uses the existing verified local-file boundary.
 
 ## Placement parameters
 
 Set parameters on each placement in Flowdeck, for example `ask_review` as a boolean
 on `onboarding`. Parameters belong to the placement; updates require no new HTML
-package or version. The next manifest refresh picks them up, even when the ZIP is
-already cached. They persist with the manifest and last-ready placement for offline use.
+package or version. The next manifest refresh picks them up, on the next preparation.
 
 Swift can read typed values from `Placement` returned by `refreshPlacements()` or
 from prepared `FlowdeckContent`:
@@ -161,9 +137,7 @@ let askReview = onboarding?.parameters.bool("ask_review", default: false) ?? fal
 Accessors use your default for missing keys or mismatched types; values are never
 coerced. `false`, `0`, and an empty string remain valid values. A presentation keeps
 the parameters selected when its content was prepared; it does not update live.
-Package fallback uses the latest known manifest's parameters, even for an older or
-bundled ZIP. If the manifest is unavailable, the last-ready descriptor supplies its
-saved parameters; a bundle alone has an empty map.
+A legacy bundle uses the last manifest’s parameters when available; otherwise its map is empty.
 
 HTML can read the frozen `window.flowdeck.parameters` object synchronously, including
 from the first inline script. `getParameters()` returns the same presentation values
@@ -180,7 +154,7 @@ const parameters = await window.flowdeck.getParameters();
 
 ## HTML bridge reference
 
-`window.flowdeck` is injected at document start, in the local main frame. Every
+`window.flowdeck` is injected at document start, in the trusted placement main frame. Every
 method returns a Promise. Await it; catch errors. Native failures reject with an
 `Error` carrying `code: "native_error"`. Invalid/untrusted raw messages reject
 at the WebKit transport boundary. Purchase cancellation and pending approval
@@ -270,9 +244,9 @@ xcodebuild -scheme Flowdeck -destination 'generic/platform=iOS Simulator' \
 Scripts/test-ios.sh YOUR_SIMULATOR_UDID
 ```
 
-The host project is generated in TMPDIR. Tests cover ETag reuse/restarts,
-offline/cache/bundle selection, failed updates, archive corruption/traversal,
-bridge parsing/scope, real local WKWebView Promise callbacks and navigation,
+The host project is generated in TMPDIR. Tests cover live URL construction, origin/path boundaries, manifest errors,
+opt-in bundle verification, archive corruption/traversal, bridge parsing/scope,
+local WKWebView Promise callbacks and navigation,
 and StoreKitTest purchases, restored entitlements, intro eligibility, pending
 approval, cancellation, revocation, expiry and restore failure recovery.
 No Apple account, provisioning, signing, upload or submission is required.
@@ -326,3 +300,11 @@ sent, with the app's API key; no device/user ID, IP field or StoreKit attributio
 is included. The server has no deduplication, so retrying after a lost response
 can overcount. Totals count events, not unique visitors; page impressions are
 additional to the placement-level impression.
+
+### Live-page verification
+
+The migration was also built for iOS Simulator and exercised on iPhone SE (3rd
+generation) and iPhone 17 Pro Max using a local HTTP `/live/probe/onboarding/`
+fixture with the server's exact `sandbox allow-scripts allow-forms` CSP.
+Native parameter, page, click and onboarding Promise calls completed successfully.
+This verifies sandbox compatibility; it is not a production deployment check.
