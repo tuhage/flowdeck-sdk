@@ -26,6 +26,7 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
     private var router: BridgeRouter!
     private let errorView = UIStackView()
     private let errorLabel = UILabel()
+    private let analytics: PresentationAnalytics
     private var didClose = false
     private var observationID: UUID?
     var onDismiss: (() -> Void)?
@@ -44,6 +45,10 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
     init(flowdeck: Flowdeck, content: FlowdeckContent) {
         self.flowdeck = flowdeck
         self.content = content
+        let queue = flowdeck.analytics
+        analytics = PresentationAnalytics(placementID: content.placementID) { event in
+            Task { await queue.enqueue(event) }
+        }
         super.init(nibName: nil, bundle: nil)
     }
     @available(*, unavailable)
@@ -75,13 +80,14 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
                 throw FlowdeckError.unavailableScene
             }
             SKStoreReviewController.requestReview(in: scene)
-        }, openURL: { url in await UIApplication.shared.open(url) })
+        }, openURL: { url in await UIApplication.shared.open(url) }, analytics: analytics)
         configureErrorView()
         reload()
     }
 
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        analytics.appear()
         presentationController?.delegate = self
         if observationID == nil {
             observationID = flowdeck.observe { [weak self] event in
@@ -171,6 +177,7 @@ public final class FlowdeckViewController: UIViewController, WKNavigationDelegat
     func reportClosed() {
         guard !didClose else { return }
         didClose = true
+        analytics.close()
         flowdeck.emit(.closed(placementID: content.placementID))
     }
     public func presentationControllerDidDismiss(_ presentationController: UIPresentationController) { reportClosed() }

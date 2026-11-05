@@ -136,7 +136,7 @@ func invalidParameterValuesAreRejected(json: String) {
         #expect(script.injectionTime == .atDocumentStart)
         #expect(script.isForMainFrameOnly)
         let context = try #require(JSContext())
-        context.evaluateScript("var window = this; window.top = window;")
+        context.evaluateScript("var window = this; window.top = window; var document = { addEventListener() {} };")
         context.evaluateScript(script.source)
         #expect(context.exception == nil)
         let serialized = try #require(context.evaluateScript("JSON.stringify(window.flowdeck.parameters)")?.toString())

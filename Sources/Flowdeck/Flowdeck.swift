@@ -17,14 +17,24 @@ public final class Flowdeck {
     public static let version = "0.1.0"
     public var onEvent: ((FlowdeckEvent) -> Void)?
     private let repository: ContentRepository
+    let analytics: EventQueue
+    private var analyticsUpdates: Task<Void, Never>?
     let commerce: any Commerce
     private var transactionUpdates: Task<Void, Never>?
     private var observers: [UUID: (FlowdeckEvent) -> Void] = [:]
 
     public init(configuration: FlowdeckConfiguration, onEvent: ((FlowdeckEvent) -> Void)? = nil) throws {
         repository = try ContentRepository(configuration: configuration)
+        analytics = EventQueue(configuration: configuration)
         commerce = StoreKitService(appAccountToken: configuration.appAccountToken)
         self.onEvent = onEvent
+        let queue = analytics
+        analyticsUpdates = Task {
+            while !Task.isCancelled {
+                await queue.flush()
+                do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            }
+        }
         transactionUpdates = Task { [weak self] in
             for await verification in Transaction.updates {
                 guard !Task.isCancelled else { return }
@@ -36,7 +46,7 @@ public final class Flowdeck {
         }
     }
 
-    deinit { transactionUpdates?.cancel() }
+    deinit { transactionUpdates?.cancel(); analyticsUpdates?.cancel() }
 
     func emit(_ event: FlowdeckEvent) {
         onEvent?(event)

@@ -23,7 +23,14 @@
     requestReview: () => call('requestReview'),
     close: () => call('close'),
     openURL: url => call('openURL', { url }),
+    page: name => call('page', { name }),
+    click: (target = '') => call('click', { target }),
     event: (name, props = {}) => call('event', { name, props }),
     completeOnboarding: () => call('completeOnboarding')
   }), writable: false, configurable: false });
+  document.addEventListener('click', event => {
+    const element = event.target instanceof Element
+      ? event.target.closest('[data-flowdeck-click]') : null;
+    if (element) window.flowdeck.click(element.getAttribute('data-flowdeck-click')).catch(() => {});
+  }, true);
 })();

@@ -32,7 +32,7 @@ public enum JSONValue: Codable, Sendable, Equatable {
 
 struct BridgeMessage: Decodable, Sendable {
     enum Method: String, Decodable, Sendable {
-        case getParameters, getProducts, purchase, restore, getEntitlements, requestReview, close, openURL, event, completeOnboarding
+        case page, click, getParameters, getProducts, purchase, restore, getEntitlements, requestReview, close, openURL, event, completeOnboarding
     }
     let id: String
     let method: Method
@@ -52,6 +52,10 @@ struct BridgeMessage: Decodable, Sendable {
             guard case .string(let url) = value.params["url"], url.count <= 4096,
                   let parsed = URL(string: url), ["https", "http"].contains(parsed.scheme),
                   parsed.host != nil, parsed.user == nil, parsed.password == nil,
+                  value.params.count == 1 else { throw FlowdeckError.invalidMessage }
+        case .page, .click:
+            let key = value.method == .page ? "name" : "target"
+            guard case .string(let name) = value.params[key], PlacementEvent.validName(name),
                   value.params.count == 1 else { throw FlowdeckError.invalidMessage }
         case .event:
             guard case .string(let name) = value.params["name"], !name.isEmpty, name.utf8.count <= 128,
@@ -78,6 +82,7 @@ public struct FlowdeckBridgeResponse: Codable, Sendable, Equatable {
 
 @MainActor
 final class BridgeRouter {
+    let analytics: PresentationAnalytics?
     let content: FlowdeckContent
     let commerce: any Commerce
     let emit: (FlowdeckEvent) -> Void
@@ -85,7 +90,8 @@ final class BridgeRouter {
     let openURL: (URL) async -> Bool
 
     init(content: FlowdeckContent, commerce: any Commerce, emit: @escaping (FlowdeckEvent) -> Void,
-         review: @escaping () throws -> Void, openURL: @escaping (URL) async -> Bool) {
+         review: @escaping () throws -> Void, openURL: @escaping (URL) async -> Bool, analytics: PresentationAnalytics? = nil) {
+        self.analytics = analytics
         self.content = content
         self.commerce = commerce
         self.emit = emit
@@ -108,6 +114,14 @@ final class BridgeRouter {
 
     private func execute(_ message: BridgeMessage) async throws -> JSONValue {
         switch message.method {
+        case .page:
+            guard case .string(let name) = message.params["name"] else { throw FlowdeckError.invalidMessage }
+            analytics?.visit(name)
+            return .null
+        case .click:
+            guard case .string(let target) = message.params["target"] else { throw FlowdeckError.invalidMessage }
+            analytics?.click(target)
+            return .null
         case .getParameters:
             return try .encoded(content.parameters)
         case .getProducts:

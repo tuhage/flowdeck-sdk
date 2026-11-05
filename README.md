@@ -287,3 +287,42 @@ this runtime issue in [the developer forum](https://developer.apple.com/forums/t
 Rerun the full suite on a runtime where StoreKitTest configuration succeeds.
 Core tests and WKWebView tests can be checked independently with
 `Scripts/test-ios.sh UDID -skip-testing:FlowdeckHarnessTests/StoreKitIntegrationTests`.
+
+### Placement statistics
+
+Each presentation automatically records one placement-level `impression` (empty
+page) when it appears, and one `close` when dismissed. Reappearing after a system
+sheet does not count again. Page changes are explicit:
+
+```js
+await window.flowdeck.page('welcome'); // Each call counts a page impression.
+await window.flowdeck.page('threadback_ad');
+await window.flowdeck.click('app_store'); // Optional explicit click.
+```
+
+Alternatively, annotate a clickable element (including dynamically added elements):
+
+```html
+<a data-flowdeck-click="app_store" href="#">Get the app</a>
+```
+
+Clicks on descendants also count once. Use either the attribute or an explicit
+`click()` for the same action to avoid counting twice. Clicks and dismissal use
+the last reported page; before `page()` they use the empty placement-level bucket.
+Names are case-sensitive, up to 64 ASCII letters, digits, underscores, dots or
+hyphens (empty is allowed). Never use URLs, user text or personal identifiers.
+Existing `event(name, props)` remains a host callback; its arbitrary properties
+are not uploaded to statistics.
+
+The SDK posts batches of up to 100 events to `/v1/sdk/events` every five seconds
+while running, with a 30-second delay after failures. Its per-configuration disk
+cache holds up to 1,000 pending events across launches; when full, new events are
+dropped. Events older than 29 days are discarded to stay inside the server's
+30-day ingestion window. Storage/network work runs off the UI actor. The cache
+can be purged by the OS; a disk-write failure retains events only in memory.
+Delivery resumes when the app runs again; this is not a background delivery
+service. Only placement, page, event type, click target and occurrence time are
+sent, with the app's API key; no device/user ID, IP field or StoreKit attribution
+is included. The server has no deduplication, so retrying after a lost response
+can overcount. Totals count events, not unique visitors; page impressions are
+additional to the placement-level impression.
